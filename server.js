@@ -9,6 +9,11 @@ const server = new pack_ws.Server({port : 2096});   // this port doesn't have to
                                                     // connect from another machine
 console.log("Running on port 2096.");
 
+/// Specify valid request domains
+const validDomains = [ // <-- specify your domains here!!!
+    "localhost"
+]
+
 /// Handle connection events
 server.on("connection", (ws) => {
     ws.isAlive = true;      // used to track whether this WebSocket instance is still open
@@ -20,23 +25,44 @@ server.on("connection", (ws) => {
 
     ws.on("message", (message) => {
         let clientRequest = JSON.parse(atob(message.toString()));   // request object we received
-        let request = clientRequest.data.request;                   // store the request for later
-        if (clientRequest.source === "localhost") { // <-- specify your domain here!!!
-            // prepare and "mask" the contents of the request (prevent injections from succeeding)
-            let APIRequest = "php api.php " +
-                btoa(JSON.stringify(clientRequest.data));
-            exec(APIRequest, (error, stdout, stderror) => {     // forward the request to the API
-                if (!error && !stderror) {
-                    let serverResponse = stdout;
-                    let fullResponse = JSON.stringify({
-                        for : request,              // the type of request the client sent
-                        response : serverResponse   // the API response
-                    });
+        if (clientRequest.type !== "registration") {
+            let request = clientRequest.data.request;   // store the request for later
+            if (ws.source === "localhost") { // <-- specify your domain here!!!
+                // prepare and "mask" the contents of the request (to prevent injection attempts)
+                let APIRequest = "php api.php " +
+                    btoa(JSON.stringify(clientRequest.data));
+                
+                // forward the request to the API
+                exec(APIRequest, (error, stdout, stderror) => {
+                    if (!error && !stderror) {
+                        let serverResponse = stdout;
+                        let fullResponse = JSON.stringify({
+                            for : request,              // the type of request the client sent
+                            response : serverResponse   // the API response
+                        });
+                        
+                        ws.send(btoa(fullResponse));    // forward the API response to the client
+                    }
+                });
+            }
+        } else {
+            let fullResponse = null;
 
-                    ws.send(btoa(fullResponse));    // forward the API response to the client
-                }
+            if (validDomains.indexOf(clientRequest.data.source) != -1) {
+                ws.source = clientRequest.data.source;      // track which domain this client is connected to
 
-            });
+                fullResponse = JSON.stringify({
+                    status : "registered",
+                    domain : ws.source
+                });
+            } else {
+                fullResponse = JSON.stringify({
+                    status : "failed",
+                    reason : ('Unknown domain "' + clientRequest.data.source + '".')
+                });
+            }
+
+            ws.send(btoa(fullResponse));
         }
     });
     

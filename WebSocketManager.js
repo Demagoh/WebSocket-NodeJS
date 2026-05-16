@@ -44,6 +44,55 @@ export class WebSocketManager {
             this.runOnConnectionUpdate("connected");
 
             console.info("Connected to WebSocket server.");
+
+            /// Register on the WebSocket server
+            let registrationRequest = {
+                type : "registration",
+                data : {
+                    source : window.location.hostname
+                }
+            };
+            
+            registrationRequest = JSON.stringify(registrationRequest);
+            registrationRequest = btoa(registrationRequest);
+
+            if (this.socket.readyState === WebSocket.OPEN) {
+                console.info("Registering on the WebSocket server...");
+
+                this.socket.send(registrationRequest);
+
+                /**
+                 * Lambda for handling the registration process between the client and
+                 * the WebSocket server.
+                 */
+                let registrationFunction = (message) => {
+                    let fullResponse = JSON.parse(atob(message.data));
+                    
+                    // check if we were registered for the correct domain
+                    if (fullResponse.status === "registered") {
+                        if (fullResponse.domain === window.location.hostname) {
+                            console.info("Successfully registered on the WebSocket server.");
+
+                            this.socket.removeEventListener("message", registrationFunction);
+        
+                            // add the normal event listener for when we receive a message
+                            this.socket.addEventListener("message", (message) => {
+                                this.runOnMessage(message); // run function for handling messages
+                            });
+    
+                            this.runOnConnectionUpdate?.("registered");
+                            return;
+                        }
+                    }
+
+                    console.error(fullResponse.reason);
+                };
+
+                // add the registration specific event listener for when we receive a message
+                this.socket.addEventListener("message", registrationFunction);
+            } else {
+                console.error("Lost connection to WebSocket server, registration failed to send.");
+            }
         });
 
         this.socket.addEventListener("close", (e) => {
@@ -54,10 +103,6 @@ export class WebSocketManager {
             console.info("Connection to WebSocket server died.");
 
             this.attemptToReconnect();      // begin attempting to reconnect
-        });
-
-        this.socket.addEventListener("message", (message) => {
-            this.runOnMessage(message);    // run function for hanndling messages
         });
     }
 
@@ -81,7 +126,7 @@ export class WebSocketManager {
 
     sendMessage(message) {
         let request = {
-            source : window.location.hostname,
+            type : "communication",
             data : message
         }
         

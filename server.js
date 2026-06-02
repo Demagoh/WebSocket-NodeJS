@@ -15,13 +15,16 @@ const validDomains = [ // <-- specify your domains here!!!
 ]
 
 /// Handle connection events
-server.on("connection", (ws) => {
+server.on("connection", (ws, req) => {
     ws.isAlive = true;      // used to track whether this WebSocket instance is still open
 
     console.log("Opened a new WebSocket connection with a client.")
     console.log("There " + ((server.clients.size != 1) ? "are" : "is") + " currently " + 
         server.clients.size + " socket" + ((server.clients.size != 1) ? "s" : "") +
         " running on this server.");
+
+    ws.originalSource = req.headers.origin;
+    ws.originalSource = ws.originalSource.replace("https://", "");
 
     ws.on("message", (message) => {
         let clientRequest = JSON.parse(atob(message.toString()));   // request object we received
@@ -49,12 +52,19 @@ server.on("connection", (ws) => {
             let fullResponse = null;
 
             if (validDomains.indexOf(clientRequest.data.source) != -1) {
-                ws.source = clientRequest.data.source;      // track which domain this client is connected to
-
-                fullResponse = JSON.stringify({
-                    status : "registered",
-                    domain : ws.source
-                });
+                if (clientRequest.data.source === ws.originalSource) {
+                    ws.source = ws.originalSource;      // track to where the client is connected
+    
+                    fullResponse = JSON.stringify({
+                        status : "registered",
+                        domain : ws.source
+                    });
+                } else {
+                    fullResponse = JSON.stringify({
+                        status : "failed",
+                        reason : "Client switched domains, registration forbidden."
+                    });
+                }
             } else {
                 fullResponse = JSON.stringify({
                     status : "failed",
@@ -79,7 +89,7 @@ server.on("connection", (ws) => {
 });
 
 
-/// Handle 
+/// Handle heartbeat
 /**
  * Interval that pings all the currently noted WebSocket clients periodically to see if
  * the connection is still alive. Clients automatically send a pong back.

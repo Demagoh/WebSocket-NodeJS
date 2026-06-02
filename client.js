@@ -3,7 +3,7 @@ import {WebSocketManager} from "./WebSocketManager.js";
 
 let serverConnection = new WebSocketManager("wss://localhost/", handleServerResponse, handleUpdate);
 
-function handleUpdate(status) {
+function handleUpdate(status, reconnectionAttempts = 0) {
     switch (status) {
         case "connected":
             requestServer({

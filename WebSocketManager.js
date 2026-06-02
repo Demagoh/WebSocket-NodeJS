@@ -85,12 +85,14 @@ export class WebSocketManager {
                         }
                     }
 
+                    this.runOnConnectionUpdate?.("failed");
                     console.error(fullResponse.reason);
                 };
 
                 // add the registration specific event listener for when we receive a message
                 this.socket.addEventListener("message", registrationFunction);
             } else {
+                this.runOnConnectionUpdate?.("failed");
                 console.error("Lost connection to WebSocket server, registration failed to send.");
             }
         });
@@ -109,7 +111,7 @@ export class WebSocketManager {
     attemptToReconnect() {
         if (this.retriesSoFar >= this.maximumNumberOfRetries) {
             console.info("Failed to reconnect, abandoning.");
-            this.runOnConnectionUpdate?.("disconnected");
+            this.runOnConnectionUpdate?.("abandoned");
             return;
         }
 
@@ -119,7 +121,7 @@ export class WebSocketManager {
             + Math.round(delayUntilNextRetry/10)/100 + "s.");
 
         this.retriesSoFar++;
-        this.runOnConnectionUpdate?.("reconnecting");
+        this.runOnConnectionUpdate?.("reconnecting", this.retriesSoFar);
 
         setTimeout(() => this.connect(), delayUntilNextRetry);
     }

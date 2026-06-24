@@ -1,11 +1,24 @@
 /// WebSocket
+import {AppInfo} from "./publicInfo.js";
 import {WebSocketManager} from "./WebSocketManager.js";
 
-let serverConnection = new WebSocketManager("wss://localhost/", handleServerResponse, handleUpdate);
+let serverConnection = null;
+
+console.info("Loading page...");
+
+window.onload = () => {
+    console.info("Page loaded.");
+
+    serverConnection = new WebSocketManager(
+        "wss://" + AppInfo.WebSocketServer + "/",
+        handleServerResponse,
+        handleUpdate
+    );
+}
 
 function handleUpdate(status, reconnectionAttempts = 0) {
     switch (status) {
-        case "connected":
+        case "registered":
             requestServer({
                 request : "echo",
                 data : {

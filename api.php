@@ -1,5 +1,15 @@
 <?php
 
+/**
+ * Echo API script.
+ * 
+ * @author  Demagoh     https://github.com/Demagoh
+ * @license MIT License
+ * @version 1.0
+ */
+
+
+
 /// Handle request
 if ($argc != 2) {
     die('{"error":"Invalid API usage."}');

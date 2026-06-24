@@ -1,45 +1,55 @@
 # WebSocket-NodeJS
-**WebSocket-NodeJS** is a bundle of scripts written in JavaScript and PHP, which implement an API using the WebSocket protocol.
+**WebSocket-NodeJS** is a compilation of scripts written in JavaScript and PHP which implement an echo API using the WebSocket protocol, with support for accessing mulitple application's APIs through a single WebSocket server.
 
 ## Functionality
-Using this bundle you can connect to a WebSocket server running in Node.js from a browser client. You can use a single WebSocket server for accessing multiple different APIs, based on which domain the requests are coming into the server from.
+These scripts (when integrated into an application correctly) implement a system for a client and an API (written in PHP) to communicate with each other using the WebSocket protocol.<br />
+A single WebSocket server can handle requests from multiple web applications at the same time, because it uses the client's source domain name as criteria by which it chooses which application's API to use.
 
 ## License
 This repository is licensed under the <a href="LICENSE" target="_blank">MIT license</a>.
 
-## Contributing
+## How to contribute to the project
 Just fork it, I'm not going to deal with pull requests.
 
 ## How to use it
-### Setting up the demo project
-To set up the project in its demo form (AKA what you get in this repository), you'll need a PHP CLI interpreter (which should come with your standard PHP packages on Linux).<br />
-You will also need to:
-- install Node.js on your system<br />
-  On Debian:
+To integrate (or build upon) this project, you'll need to:
+- install a PHP CLI interpreter (which on Linux should come with your PHP package)
+- install Node.js<br />
+  *for Debian*:
   ```
   $ sudo apt-get install nodejs
   ```
-- install the ``ws`` package
+- install the ``ws`` package for Node.js
   ```
   $ npm install ws
   ```
-- if for some reason it doesn't come with Node.js, install the ``child_process`` package
+- modify the ``privateInfo.js`` and ``publicInfo.js`` scripts to contain the correct domain name (by default they just have placeholders)
+- modify the ``server.js`` script to import the ``privateInfo.js`` script, as well as list it as an app in the **apps** array
+- include the <a href="client.js">client.js</a> script as a module in the HTML ``<head>`` element of your web apps site:
+  ```
+  <script type="module" src="client.js" defer></script>
+  ```
+- enable forwarding of WebSocket requests in **nginx**, if you are using a different web server look into what you have to do (if you even have to do anything) to make sure that WebSocket requests reach the WebSocket server.
+  - I have provided an <a href="nginxWebSocketServerForwarder">example of an nginx configuration</a> which defines both the **upstream** and **server** directives needed for a ***ws*** connection (the <a href="client.js">client.js</a> script uses **wss** by default, so either make it use **ws** or provide an SSL certificate for **wss**).
 
-Once you have everything installed, start the WebSocket server:
+<br />
+
+The following scripts are to be used on the **client**:
+- <a href="client.js">client.js</a>
+- <a href="publicInfo.js">publicInfo.js</a>
+- <a href="WebSocketManager.js">WebSocketManager.js</a>
+
+<br />
+
+The following scripts are to be used on the **server** and ***should not*** be accessible from the client:
+- <a href="server.js">server.js</a>
+- <a href="privateInfo.js">privateInfo.js</a>
+
+<br />
+
+To start the WebSocket server you just have to run:
 ```
 $ node server.js
 ```
 
-Then, open <a href="index.html">index.html</a> in your browser and check the console (to open it, press the F12 key) and see if you get a ``test`` message.<br />
-<br />
-
-### Adding to existing websites
-Include the <a href="client.js">client.js</a> script as a module in the HTML ``<head>`` element:
-```
-<script type="module" src="script.js" defer></script>
-```
-You can also just include the <a href="WebSocketManager.js">WebSocketManager.js</a> script in an already existing **client** script, just make sure to then include the **client** as a module, not a normal script.<br />
-
-Modify the <a href="server.js">server.js</a> script to point to the appropriate API script (or rewrite it to handle the API by itself).<br />
-
-Run the server script just like you would for the demo (unless you changed it to the point where you have to run it differently).
+I also recommend you use <a href="https://www.npmjs.com/package/pm2">PM2</a> to automatically restart the WebSocket server when it crashes and to automatically start it upon system startup.

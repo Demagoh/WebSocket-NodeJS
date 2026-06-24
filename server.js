@@ -1,71 +1,133 @@
 /// Import Node.js libraries
-const pack_ws = require("ws");
-const { exec } = require("node:child_process");
+const pack_ws = require("ws");  // WebSocket library
+const {exec} = require("node:child_process");   // library for executing files (like PHP API files)
+
+
+
+/// Import WebSocket app information
+/*
+Import the privateInfo.js files for all of your apps as constants here.
+Example of such an import:
+*/
+const AppName = require("/path/to/app/privateInfo.js");
+
+/*
+Add the AppInfo objects from the files you imported above to this list below.
+Example of what the final array with only one app should look like:
+*/
+const apps = [
+    AppName.AppInfo
+];
+
+
 
 /// Create a WebSocket server
-const server = new pack_ws.Server({port : 2096});   // this port doesn't have to be port-forwarded
-                                                    // just make sure that access to it is allowed
-                                                    // in your server's firewall if you want to
-                                                    // connect from another machine
-console.log("Running on port 2096.");
+/*
+The port used here isn't really all that important, if you're using nginx as your web server you
+don't need to port forward it, as it will be accessed locally by the nginx server.
+Check this guide here for information on how to forward WebSocket requests to the Node.js server:
+https://websocket.org/guides/infrastructure/nginx/
+I have also included my own example of the nginx server configuration with forwarding of WebSocket
+requests set up alongside this JavaScript file.
+*/
+const server = new pack_ws.Server({port : 2096});
+logUpdate("Running on port 2096.");
+
+
 
 /// Specify valid request domains
-const validDomains = [ // <-- specify your domains here!!!
-    "localhost"
-]
+// this array is automatically populated by using the above apps array
+let validDomains = [];
+for (let i = 0; i < apps.length; i++) {
+    validDomains.push(apps[i].domain);
+}
 
-/// Handle connection events
-server.on("connection", (ws, req) => {
-    ws.isAlive = true;      // used to track whether this WebSocket instance is still open
 
-    console.log("Opened a new WebSocket connection with a client.")
-    console.log("There " + ((server.clients.size != 1) ? "are" : "is") + " currently " + 
-        server.clients.size + " socket" + ((server.clients.size != 1) ? "s" : "") +
-        " running on this server.");
 
+/// WebSocket connection handling
+server.on("connection", (ws, req) => {  // called when a new connection has been fully established
+    ws.isAlive = true;  // used to track whether this WebSocket instance is still open
+
+    // log new connection
+    logUpdate("Opened a new WebSocket connection with a client.")
+    logUpdate("There " + ((server.clients.size !== 1) ? "are" : "is") + " currently " + 
+        server.clients.size + " socket" + ((server.clients.size !== 1) ? "s" : "") +
+        " connected to this server.");
+
+
+    
+    // used for extra validation when the client is registering
     ws.originalSource = req.headers.origin;
     ws.originalSource = ws.originalSource.replace("https://", "");
 
+    // immediately reject all clients from invalid domains
+    if (validDomains.indexOf(ws.originalSource) === -1) {
+        ws.send(btoa(JSON.stringify({
+            status : "failed",
+            reason : ('Unknown domain "' + clientRequest.data.source + '".')
+        })));
+    }
+
+
+
     ws.on("message", (message) => {
         let clientRequest = JSON.parse(atob(message.toString()));   // request object we received
+
+        // seperate registrations from all other communication types
         if (clientRequest.type !== "registration") {
-            let request = clientRequest.data.request;   // store the request for later
-            if (ws.source === "localhost") { // <-- specify your domain here!!!
-                // prepare and "mask" the contents of the request (to prevent injection attempts)
-                let APIRequest = "php api.php " +
-                    btoa(JSON.stringify(clientRequest.data));
-                
-                // forward the request to the API
-                exec(APIRequest, (error, stdout, stderror) => {
-                    if (!error && !stderror) {
-                        let serverResponse = stdout;
+            let request = clientRequest.data.request;   // store the request type for later
+
+            // search which application's PHP API should handle this client's request
+            for (let i = 0; i < validDomains.length; i++) {
+                if (ws.source === validDomains[i]) {
+                    // prepare and Base64 encode the client's request (to prevent PHP injections)
+                    let APIRequest = "php " + apps[i].APIFile + " " +
+                        btoa(JSON.stringify(clientRequest.data));
+                    
+                    // run the API PHP script and pass it the client's request
+                    exec(APIRequest, (error, stdout, stderror) => {
+                        let serverResponse;
+                        if (error === null) {
+                            serverResponse = stdout;
+                        } else {
+                            // if the API encounters a fatal error let the user know by making the
+                            // response global
+                            request = "global";
+                            serverResponse = '{"status":"failed","response":{"reason":"The API encountered a fatal error."}}';
+                        }
+
                         let fullResponse = JSON.stringify({
-                            for : request,              // the type of request the client sent
-                            response : serverResponse   // the API response
+                            for : request,              // the type of request the API is replying to
+                            response : serverResponse   // the API's response
                         });
                         
-                        ws.send(btoa(fullResponse));    // forward the API response to the client
-                    }
-                });
+                        ws.send(btoa(fullResponse));    // send the full response to the client
+                    });
+                    break;
+                }
             }
-        } else {
+        } else {    // handle registrations
             let fullResponse = null;
 
-            if (validDomains.indexOf(clientRequest.data.source) != -1) {
+            // check if the client's source domain is in the list of valid domains
+            if (validDomains.indexOf(clientRequest.data.source) !== -1) {
                 if (clientRequest.data.source === ws.originalSource) {
-                    ws.source = ws.originalSource;      // track to where the client is connected
+                    // if the original and advertised request source match, save the client's
+                    // source for later use indetifying the client
+                    ws.source = ws.originalSource;
     
                     fullResponse = JSON.stringify({
                         status : "registered",
                         domain : ws.source
                     });
-                } else {
+                } else { // this code should never run
+                    logUpdate("A client switched domain, the registration request was rejected.");
                     fullResponse = JSON.stringify({
                         status : "failed",
-                        reason : "Client switched domains, registration forbidden."
+                        reason : "Client switched domains, registration request rejected."
                     });
                 }
-            } else {
+            } else { // this code should never run either
                 fullResponse = JSON.stringify({
                     status : "failed",
                     reason : ('Unknown domain "' + clientRequest.data.source + '".')
@@ -76,35 +138,53 @@ server.on("connection", (ws, req) => {
         }
     });
     
-    ws.on("pong", () => {
+
+
+    ws.on("pong", () => {   // called when a ping-pong response (a pong) is received
         ws.isAlive = true;
     });
     
-    ws.on("close", () => {
-        console.log("Closed a WebSocket connection with a client.")
-        console.log("There " + ((server.clients.size != 1) ? "are" : "is") + " currently " +
-            server.clients.size + " socket" + ((server.clients.size != 1) ? "s" : "") +
-            " running on this server.");
+
+
+    ws.on("close", () => {  // called upon the termination of a connection
+        logUpdate("Closed a WebSocket connection with a client.");
+        logUpdate("There " + ((server.clients.size !== 1) ? "are" : "is") + " currently " +
+            server.clients.size + " socket" + ((server.clients.size !== 1) ? "s" : "") +
+            " connected to this server.");
     });
 });
 
 
+
 /// Handle heartbeat
 /**
- * Interval that pings all the currently noted WebSocket clients periodically to see if
- * the connection is still alive. Clients automatically send a pong back.
+ * Interval that sends ping-pong requests (pings) to all of the currently noted WebSocket clients
+ * at 90 second intervals to verify if the connection is still alive. Clients automatically send
+ * a ping-pong (a pong) response back.
  */
 setInterval(function ping() {
-    if (server.clients.size > 0) {  // only send out pings when we are connected to clients
+    if (server.clients.size > 0) {
         server.clients.forEach((ws) => {
-            if (!ws.isAlive) {      // if the client has already been pinged but it hasn't ponged
-                                    // us back yet, we terminate the connection
+            if (!ws.isAlive) {  // if the client has already been pinged but it hasn't responded
+                                // by the time we go to ping it again, terminate the connection
                 ws.terminate();
                 return;
             }
     
             ws.isAlive = false;
-            ws.ping();              // send out a ping to the connected client
+            ws.ping();  // send out a ping to the connected client
         });
     }
-}, (90*1000));  // rerun the interval every 90,000 ms
+}, (90*1000));  // rerun the interval every 90 seconds (given in milliseconds)
+
+
+
+/**
+ * Function for logging update messages together with timestamps.
+ * 
+ * @param   message     Message to log.
+ */
+function logUpdate(message) {
+    const logTime = new Date();
+    console.log(logTime.toISOString() + ": " + message);
+}

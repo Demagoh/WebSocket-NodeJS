@@ -70,6 +70,7 @@ server.on("connection", (ws, req) => {  // called when a new connection has been
 
 
 
+    // handle client -> API updates/requests
     ws.on("message", (message) => {
         let clientRequest = JSON.parse(atob(message.toString()));   // request object we received
 
@@ -87,8 +88,28 @@ server.on("connection", (ws, req) => {  // called when a new connection has been
                     // run the API PHP script and pass it the client's request
                     exec(APIRequest, (error, stdout, stderror) => {
                         let serverResponse;
+                        let sendToUsers = null;
+                        let openItemID = -1;
                         if (error === null) {
                             serverResponse = stdout;
+
+                            console.log(serverResponse);
+
+                            if ('sendToUsers' in JSON.parse(serverResponse).response) {
+                                sendToUsers = JSON.parse(serverResponse).response.sendToUsers;
+                                openItemID = JSON.parse(serverResponse).response.openItemID;
+                                serverResponse = JSON.stringify({
+                                    status : JSON.parse(serverResponse).status,
+                                    response : JSON.parse(serverResponse).response.response
+                                });
+                            }
+
+                            // store client data for API -> client updates
+                            if (request === "user/data") {
+                                ws.userID = JSON.parse(serverResponse).response.userID;
+                            } else if (request === "item/open") {
+                                ws.openItemID = clientRequest.data.itemID;
+                            }
                         } else {
                             // if the API encounters a fatal error let the user know by making the
                             // response global
@@ -100,8 +121,24 @@ server.on("connection", (ws, req) => {  // called when a new connection has been
                             for : request,              // the type of request the API is replying to
                             response : serverResponse   // the API's response
                         });
-                        
-                        ws.send(btoa(fullResponse));    // send the full response to the client
+
+                        if (sendToUsers !== null) {     // send response to multiple users
+                            server.clients.forEach((otherWS) => {
+                                /* Check if the source domains match, if the user on this WebSocket
+                                is on the list of users and in the case the data is limited to
+                                users who have the current item open check if the user currently
+                                has this item open. */ 
+                                if (otherWS.source === ws.source &&
+                                    sendToUsers.indexOf(otherWS.userID) != -1 &&
+                                    (openItemID === -1 ||
+                                    openItemID !== -1 && otherWS.openItemID === openItemID)) {
+                                    otherWS.send(btoa(fullResponse));
+                                }
+                            });
+                        } else {    // send response only to the original client
+                            ws.send(btoa(fullResponse));    // send the full response to the client
+                        }
+
                     });
                     break;
                 }
@@ -133,6 +170,9 @@ server.on("connection", (ws, req) => {  // called when a new connection has been
                     reason : ('Unknown domain "' + clientRequest.data.source + '".')
                 });
             }
+
+            ws.userID = null;
+            ws.openItemID = null;
 
             ws.send(btoa(fullResponse));
         }
